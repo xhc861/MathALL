@@ -10,14 +10,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "katex": "^0.16.10",
     "lucide-react": "^1.7.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-router": "^7.14.0",
     "react-markdown": "^9.0.1",
-    "remark-math": "^6.0.0",
+    "react-router": "^7.14.0",
     "rehype-katex": "^7.0.0",
-    "katex": "^0.16.10"
+    "remark-math": "^6.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
@@ -31,6 +31,7 @@
     "globals": "^17.4.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.57.0",
-    "vite": "^8.0.1"
+    "vite": "^8.0.1",
+    "vite-plugin-static-copy": "^4.0.1"
   }
 }

@@ -19,7 +19,7 @@ export interface GeoGebraAPI {
   reset: () => void;
   setCoordSystem: (xmin: number, xmax: number, ymin: number, ymax: number) => void;
   getValue: (name: string) => number;
-  getValueString: (name: string) => string;
+  getValueString: (name: string, useTemplate?: boolean) => string;
   setVisible: (name: string, visible: boolean) => void;
   setColor: (name: string, r: number, g: number, b: number) => void;
   setLineThickness: (name: string, thickness: number) => void;
@@ -27,9 +27,13 @@ export interface GeoGebraAPI {
   setFixed: (name: string, fixed: boolean) => void;
   deleteObject: (name: string) => void;
   exists: (name: string) => boolean;
-  getAllObjectNames: () => string[];
+  getAllObjectNames: (type?: string) => string[];
   getXcoord: (name: string) => number;
   getYcoord: (name: string) => number;
+  getZcoord: (name: string) => number;
+  getObjectType: (name: string) => string;
+  getCommandString: (name: string, substituteNumbers?: boolean) => string;
+  getLaTeXString: (name: string) => string;
   registerObjectUpdateListener: (name: string, callback: string) => void;
   registerAddListener: (callback: string) => void;
   setAnimating: (name: string, animating: boolean) => void;
@@ -40,6 +44,9 @@ export interface GeoGebraAPI {
   setXML: (xml: string) => void;
   getBase64: () => string;
   setBase64: (base64: string) => void;
+  setLabelVisible: (name: string, visible: boolean) => void;
+  setLabelStyle: (name: string, style: number) => void;
+  setCoords: (name: string, x: number, y: number, z?: number) => void;
 }
 
 export default function GeoGebraApplet({ id = 'ggb-applet', appName = 'classic', onReady }: GeoGebraAppletProps) {
@@ -52,7 +59,7 @@ export default function GeoGebraApplet({ id = 'ggb-applet', appName = 'classic',
     const api = (window as unknown as Record<string, GeoGebraAPI>)[id];
     if (api) {
       apiRef.current = api;
-      
+
       if (appName === 'classic') {
         api.evalCommand('SetPerspective("G")');
       } else if (appName === 'geometry') {
@@ -96,7 +103,7 @@ export default function GeoGebraApplet({ id = 'ggb-applet', appName = 'classic',
 
       onReady?.(api);
     }
-  }, [id, onReady]);
+  }, [id, appName]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -117,39 +124,53 @@ export default function GeoGebraApplet({ id = 'ggb-applet', appName = 'classic',
 
     const ggbLanguage = localStorage.getItem('mathall-ggb-language') || 'zh';
 
+    const containerWidth = containerRef.current.clientWidth || 800;
+    const containerHeight = containerRef.current.clientHeight || 600;
+    console.log('GeoGebra container size:', containerWidth, 'x', containerHeight);
+
     const params: Record<string, unknown> = {
-      appName: 'classic', // Use classic engine and manage views via SetPerspective to prevent white screens
-      width: containerRef.current.clientWidth,
-      height: containerRef.current.clientHeight,
+      appName: appName,
+      width: containerWidth,
+      height: containerHeight,
       showToolBar: false,
       showAlgebraInput: false,
       showMenuBar: false,
       showResetIcon: false,
       enableLabelDrags: false,
       enableShiftDragZoom: true,
-      enableRightClick: false,
+      enableRightClick: true,
       showZoomButtons: true,
-      useBrowserForJS: true, // Should remain true for api bridges
+      useBrowserForJS: true,
       borderColor: 'transparent',
       language: ggbLanguage,
       id: id,
+      algebraInputPosition: 'none',
+      showAlgebraView: false,
+      perspective: appName === '3d' ? 'T' : (appName === 'geometry' ? '2' : 'G'),
       appletOnLoad: (api: GeoGebraAPI) => {
         apiRef.current = api;
+        // Set perspective based on appName
+        if (appName === 'classic') {
+          api.evalCommand('SetPerspective("G")');
+        } else if (appName === 'geometry') {
+          api.evalCommand('SetPerspective("2")');
+        } else if (appName === '3d') {
+          api.evalCommand('SetPerspective("T")');
+        }
         onReady?.(api);
       },
     };
 
+    const ggbApp = new window.GGBApplet(params, '6.0');
+  
     try {
-      const applet = new window.GGBApplet(params, '5.0');
-      applet.inject(containerRef.current);
+      ggbApp.inject(containerRef.current);
       injectedRef.current = true;
     } catch (e) {
       console.warn('GeoGebra not ready yet, retrying...', e);
-      // Retry after script loads
       const timer = setTimeout(() => {
         if (containerRef.current && window.GGBApplet) {
-          const applet = new window.GGBApplet(params, '5.0');
-          applet.inject(containerRef.current);
+          ggbApp.inject(containerRef.current);
           injectedRef.current = true;
         }
       }, 2000);
@@ -159,7 +180,7 @@ export default function GeoGebraApplet({ id = 'ggb-applet', appName = 'classic',
     return () => {
       delete (window as unknown as Record<string, unknown>)[callbackName];
     };
-  }, [id, appName, handleAppletLoad, onReady]);
+  }, [id, appName, handleAppletLoad]);
 
   // Responsive resize
   useEffect(() => {

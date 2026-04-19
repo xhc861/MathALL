@@ -1,10 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router';
-import { Settings, Moon, Sun, Download, Upload, ImagePlus, RefreshCw, Layers, X } from 'lucide-react';
+import { Settings, Moon, Sun, Download, Upload, ImagePlus, RefreshCw, X, ChevronDown, ChevronUp, Bot, Check, Maximize, Minimize, Copy, Bug } from 'lucide-react';
 import GeoGebraApplet, { type GeoGebraAPI } from './components/GeoGebraApplet';
 import AlgebraHtmlRenderer from './components/AlgebraHtmlRenderer';
+import Toast from './components/Toast';
+import ImageViewer from './components/ImageViewer';
+import DebugPanel from './components/DebugPanel';
+import AlgebraCalculator from './components/AlgebraCalculator';
+import MinimumCalculator from './components/MinimumCalculator';
 import { fetchAIAnalysisStream } from './services/aiStreamService';
-import { downloadGGB, downloadProjectJSON, printToPDF } from './services/exportManager';
+import { downloadGGB, downloadProjectJSON, exportToHTML } from './services/exportManager';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -15,23 +20,133 @@ function App() {
   const navigate = useNavigate();
   const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('mathall-theme') || 'light') as 'light' | 'dark');
   const [streamingTag, setStreamingTag] = useState('');
-  const [problemText, setProblemText] = useState('');
-  const [aiCode, setAiCode] = useState('');
-  const [htmlContent, setHtmlContent] = useState('');
-  const [rendererMode, setRendererMode] = useState<'GEOGEBRA' | 'HTML_CANVAS' | null>('GEOGEBRA'); // default to GGB
+  const [problemText, setProblemText] = useState(() => localStorage.getItem('mathall-problem-text') || '');
+  const [aiCode, setAiCode] = useState(() => localStorage.getItem('mathall-ai-code') || '');
+  const [htmlContent, setHtmlContent] = useState(() => localStorage.getItem('mathall-html-content') || '');
+  const [rendererMode, setRendererMode] = useState<'GEOGEBRA' | 'HTML_CANVAS' | null>(() => {
+    const saved = localStorage.getItem('mathall-renderer-mode');
+    return saved ? (saved as 'GEOGEBRA' | 'HTML_CANVAS' | null) : 'GEOGEBRA';
+  });
   const [isGenerating, setIsGenerating] = useState(false);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
-  const [imagesBase64, setImagesBase64] = useState<string[]>([]);
+  const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
+  const [imagesBase64, setImagesBase64] = useState<string[]>(() => {
+    const saved = localStorage.getItem('mathall-images');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [isUploadBtnHovered, setIsUploadBtnHovered] = useState(false);
-  const [ggbAppName, setGgbAppName] = useState<'classic' | '3d' | 'geometry'>('classic');
+  const [ggbAppName, setGgbAppName] = useState<'classic' | '3d' | 'geometry'>(() => {
+    const saved = localStorage.getItem('mathall-ggb-app-name');
+    return saved ? (saved as 'classic' | '3d' | 'geometry') : 'classic';
+  });
   const [pendingGgbCode, setPendingGgbCode] = useState('');
   const ggbApiRef = useRef<GeoGebraAPI | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [viewerImage, setViewerImage] = useState<string | null>(null);
+  const [isAiCodeExpanded, setIsAiCodeExpanded] = useState(() => {
+    const saved = localStorage.getItem('mathall-ai-code-expanded');
+    return saved === 'true';
+  });
+  const [isCanvasFullscreen, setIsCanvasFullscreen] = useState(false);
+  const [isGgbCodeExpanded, setIsGgbCodeExpanded] = useState(() => {
+    const saved = localStorage.getItem('mathall-ggb-code-expanded');
+    return saved === 'false' ? false : false; // Default to collapsed
+  });
+  const [isDebugPanelOpen, setIsDebugPanelOpen] = useState(false);
+  const [isAlgebraCalculatorOpen, setIsAlgebraCalculatorOpen] = useState(false);
+  const [isMinimumCalculatorOpen, setIsMinimumCalculatorOpen] = useState(false);
 
-  const ggbLanguage = localStorage.getItem('mathall-ggb-language') || 'zh';
+  // AI Models
+  const [aiModels, setAiModels] = useState<Array<{id: string; name: string}>>([]);
+  const [selectedModelId, setSelectedModelId] = useState('');
+  const [hasGenerated, setHasGenerated] = useState(false);
+  const [lastGeneratedModelId, setLastGeneratedModelId] = useState('');
+
+  useEffect(() => {
+    const loadModels = () => {
+      const saved = localStorage.getItem('mathall-ai-models');
+      if (saved) {
+        const models = JSON.parse(saved);
+        setAiModels(models);
+        const selected = localStorage.getItem('mathall-selected-model-id');
+        if (selected && models.find((m: any) => m.id === selected)) {
+          setSelectedModelId(selected);
+        } else if (models.length > 0) {
+          setSelectedModelId(models[0].id);
+        }
+      }
+    };
+    loadModels();
+    window.addEventListener('mathall-settings-updated', loadModels);
+    return () => window.removeEventListener('mathall-settings-updated', loadModels);
+  }, []);
+
   const maxImages = parseInt(localStorage.getItem('mathall-max-images') || '4', 10);
+  const imageModalThreshold = parseInt(localStorage.getItem('mathall-image-modal-threshold') || '5', 10);
+  const [enableCanvasFullscreen, setEnableCanvasFullscreen] = useState(() =>
+    localStorage.getItem('mathall-enable-canvas-fullscreen') === 'true'
+  );
+
+  useEffect(() => {
+    const loadSettings = () => {
+      setEnableCanvasFullscreen(localStorage.getItem('mathall-enable-canvas-fullscreen') === 'true');
+    };
+    window.addEventListener('mathall-settings-updated', loadSettings);
+    return () => window.removeEventListener('mathall-settings-updated', loadSettings);
+  }, []);
+
+  // Persist state changes
+  useEffect(() => {
+    localStorage.setItem('mathall-problem-text', problemText);
+  }, [problemText]);
+
+  useEffect(() => {
+    localStorage.setItem('mathall-ai-code', aiCode);
+  }, [aiCode]);
+
+  useEffect(() => {
+    localStorage.setItem('mathall-html-content', htmlContent);
+  }, [htmlContent]);
+
+  useEffect(() => {
+    if (rendererMode) {
+      localStorage.setItem('mathall-renderer-mode', rendererMode);
+    }
+  }, [rendererMode]);
+
+  useEffect(() => {
+    localStorage.setItem('mathall-images', JSON.stringify(imagesBase64));
+  }, [imagesBase64]);
+
+  useEffect(() => {
+    localStorage.setItem('mathall-ggb-app-name', ggbAppName);
+  }, [ggbAppName]);
+
+  useEffect(() => {
+    localStorage.setItem('mathall-ai-code-expanded', String(isAiCodeExpanded));
+  }, [isAiCodeExpanded]);
+
+  useEffect(() => {
+    localStorage.setItem('mathall-ggb-code-expanded', String(isGgbCodeExpanded));
+  }, [isGgbCodeExpanded]);
+
+  // Save GeoGebra state before unmount
+  useEffect(() => {
+    return () => {
+      if (ggbApiRef.current) {
+        try {
+          const state = ggbApiRef.current.getBase64();
+          localStorage.setItem(`mathall-ggb-state-${ggbAppName}`, state);
+          console.log(`Saved ${ggbAppName} state to localStorage`);
+        } catch (e) {
+          console.warn('Failed to save GeoGebra state:', e);
+        }
+      }
+    };
+  }, [ggbAppName]);
 
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
@@ -78,21 +193,114 @@ function App() {
 
   const toggleTheme = () => setTheme(t => t === 'light' ? 'dark' : 'light');
 
-  const executeGgbCode = useCallback((api: GeoGebraAPI, code: string) => {
-    const lines = code.split('\n');
-    for (const line of lines) {
-      if (line.trim() && !line.includes('MODE:')) {
-         try { api.evalCommand(line); } catch (e) { console.error('GeoGebra command error:', e) }
+  // Helper function to detect MODE from code
+  const detectModeFromCode = useCallback((code: string): 'classic' | '3d' | 'geometry' | null => {
+    if (code.includes('MODE: 3D') || code.includes('MODE:3D')) {
+      return '3d';
+    } else if (code.includes('MODE: 2D') || code.includes('MODE:2D')) {
+      return 'classic';
+    }
+    return null;
+  }, []);
+
+  const executeGgbCode = useCallback((api: GeoGebraAPI, code: string, shouldCheckMode = false) => {
+    // Check MODE before execution if requested
+    if (shouldCheckMode) {
+      const detectedMode = detectModeFromCode(code);
+      if (detectedMode && detectedMode !== ggbAppName) {
+        console.log(`Mode mismatch detected: current=${ggbAppName}, code=${detectedMode}. Switching...`);
+        setGgbAppName(detectedMode);
+        setPendingGgbCode(code);
+        return; // Will be executed after remount
       }
     }
-  }, []);
+
+    // Clear all objects before importing
+    api.reset();
+
+    const lines = code.split('\n');
+    let errorCount = 0;
+    const errors: string[] = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.includes('MODE:')) {
+         try {
+           // 使用 API 方法处理特殊命令
+           if (trimmed.startsWith('SetColor(')) {
+             const match = trimmed.match(/SetColor\((\w+),\s*"(\w+)"\)/);
+             if (match) {
+               const [, objName, colorName] = match;
+               const colorMap: Record<string, { r: number; g: number; b: number }> = {
+                 'Black': { r: 0, g: 0, b: 0 },
+                 'Blue': { r: 0, g: 0, b: 255 },
+                 'Red': { r: 255, g: 0, b: 0 },
+                 'Orange': { r: 255, g: 165, b: 0 }
+               };
+               const color = colorMap[colorName];
+               if (color) {
+                 api.setColor(objName, color.r, color.g, color.b);
+               }
+               continue;
+             }
+           }
+
+           if (trimmed.startsWith('ShowLabel(')) {
+             const match = trimmed.match(/ShowLabel\((\w+),\s*true\)/);
+             if (match) {
+               const objName = match[1];
+               api.setLabelVisible(objName, true);
+               api.setLabelStyle(objName, 1); // 1 = name and value
+               continue;
+             }
+           }
+
+           const success = api.evalCommand(trimmed);
+           if (!success) {
+             errorCount++;
+             if (errorCount <= 3) errors.push(trimmed);
+           }
+         } catch (e) {
+           errorCount++;
+           if (errorCount <= 3) errors.push(trimmed);
+           console.error('GeoGebra command error:', trimmed, e);
+         }
+      }
+    }
+
+    if (errorCount > 0) {
+      const msg = `GeoGebra 执行了 ${lines.length} 行代码，其中 ${errorCount} 行失败${errors.length > 0 ? '，前几个错误命令：' + errors.join('; ') : ''}`;
+      setToast({ message: msg, type: 'error' });
+    }
+
+    // Save GeoGebra state after execution
+    try {
+      const state = api.getBase64();
+      localStorage.setItem(`mathall-ggb-state-${ggbAppName}`, state);
+      console.log(`Saved ${ggbAppName} state after code execution`);
+    } catch (e) {
+      console.warn('Failed to save GeoGebra state:', e);
+    }
+  }, [ggbAppName, detectModeFromCode]);
 
   const handleGeoGebraReady = useCallback((api: GeoGebraAPI) => {
     ggbApiRef.current = api;
     console.log('GeoGebra ready! mode:', ggbAppName);
+
     if (pendingGgbCode) {
       executeGgbCode(api, pendingGgbCode);
       setPendingGgbCode('');
+    } else {
+      // Try to restore mode-specific saved state
+      const modeSpecificState = localStorage.getItem(`mathall-ggb-state-${ggbAppName}`);
+      if (modeSpecificState) {
+        try {
+          api.setBase64(modeSpecificState);
+          console.log(`Restored ${ggbAppName} state from localStorage`);
+        } catch (e) {
+          console.warn('Failed to restore GeoGebra state:', e);
+        }
+      }
     }
   }, [pendingGgbCode, executeGgbCode, ggbAppName]);
 
@@ -102,7 +310,9 @@ function App() {
     setStreamingTag('');
     setAiCode('');
     setHtmlContent('');
-    setRendererMode(null); 
+    setRendererMode(null);
+    setHasGenerated(true);
+    setLastGeneratedModelId(selectedModelId);
 
     try {
       const stream = fetchAIAnalysisStream(problemText, imagesBase64); 
@@ -143,17 +353,36 @@ function App() {
         }
       }
 
+      // 提取【RESULT】标记内的代码
+      const resultMatch = finalAiCode.match(/【RESULT】([\s\S]*?)【\/RESULT】/);
+      let extractedCode = finalAiCode;
+      if (resultMatch) {
+        extractedCode = resultMatch[1].trim();
+        console.log('Extracted code from RESULT tags:', extractedCode);
+
+        // Check MODE in extracted code and update if needed
+        const detectedMode = detectModeFromCode(extractedCode);
+        if (detectedMode && detectedMode !== targetGgbApp && !appNameChanged) {
+          console.log(`MODE detected in RESULT: ${detectedMode}, switching from ${targetGgbApp}`);
+          setGgbAppName(detectedMode);
+          targetGgbApp = detectedMode;
+          appNameChanged = true;
+        }
+      } else {
+        console.warn('No RESULT tags found, using full output');
+      }
+
       if (finalRendererMode !== 'HTML_CANVAS') {
         if (appNameChanged || ggbApiRef.current == null) {
            // Component is remounting, save code to be executed when ready
-           setPendingGgbCode(finalAiCode);
+           setPendingGgbCode(extractedCode);
         } else {
-           executeGgbCode(ggbApiRef.current, finalAiCode);
+           executeGgbCode(ggbApiRef.current, extractedCode);
         }
       }
 
     } catch (error: any) {
-      alert(`生成失败: ${error.message}`);
+      setToast({ message: `生成失败: ${error.message}`, type: 'error' });
     } finally {
       setIsGenerating(false);
     }
@@ -170,9 +399,14 @@ function App() {
 
   const handleExportGGB = () => {
     if (ggbApiRef.current && rendererMode !== 'HTML_CANVAS') {
-      downloadGGB(ggbApiRef.current, 'mathall_project.ggb');
+      try {
+        downloadGGB(ggbApiRef.current, 'mathall_project.ggb');
+        setToast({ message: 'GGB 文件已导出', type: 'success' });
+      } catch (error: any) {
+        setToast({ message: error.message || 'GGB 导出失败', type: 'error' });
+      }
     } else {
-      alert("当前是在纯代数视图，需要使用 GeoGebra 视图时才可导出 GGB 图形。");
+      setToast({ message: '当前是在纯代数视图，需要使用 GeoGebra 视图时才可导出 GGB 图形', type: 'info' });
     }
     setIsDownloadOpen(false);
   };
@@ -196,8 +430,9 @@ function App() {
               ggbApiRef.current.setBase64(data.ggbBase64);
            }
          }, 500);
+         setToast({ message: 'JSON 配置已导入', type: 'success' });
       } catch (err) {
-         alert("无效的 JSON 文件或解析失败");
+         setToast({ message: '无效的 JSON 文件或解析失败', type: 'error' });
       }
     };
     reader.readAsText(file);
@@ -215,8 +450,9 @@ function App() {
          const base64 = base64Url.split(',')[1];
          if (ggbApiRef.current && rendererMode !== 'HTML_CANVAS') {
              ggbApiRef.current.setBase64(base64);
+             setToast({ message: 'GGB 文件已导入', type: 'success' });
          } else {
-             alert('当前不是画板模式，请先切换');
+             setToast({ message: '当前不是画板模式，请先切换', type: 'info' });
          }
      }
      reader.readAsDataURL(file);
@@ -224,18 +460,81 @@ function App() {
   };
 
   return (
-    <div className="app-container">
-      <header className="glass-panel app-header">
+    <>
+      <AlgebraCalculator
+        ggbApi={ggbApiRef.current}
+        isOpen={isAlgebraCalculatorOpen}
+        onClose={() => setIsAlgebraCalculatorOpen(false)}
+      />
+      <MinimumCalculator
+        ggbApi={ggbApiRef.current}
+        isOpen={isMinimumCalculatorOpen}
+        onClose={() => setIsMinimumCalculatorOpen(false)}
+      />
+      {viewerImage && (
+        <ImageViewer
+          imageUrl={viewerImage}
+          onClose={() => setViewerImage(null)}
+        />
+      )}
+      {isCanvasFullscreen && (
+        <div className="canvas-fullscreen-overlay">
+          <button
+            className="btn btn-outline"
+            onClick={() => setIsCanvasFullscreen(false)}
+            style={{
+              position: 'absolute',
+              top: '20px',
+              right: '20px',
+              zIndex: 10001,
+              padding: '10px',
+              minWidth: 'auto',
+              background: 'var(--panel-bg)',
+              backdropFilter: 'blur(8px)',
+              boxShadow: 'var(--shadow-lg)'
+            }}
+            title="退出全屏"
+          >
+            <Minimize size={20} />
+          </button>
+          <div style={{ width: '100%', height: '100%' }}>
+            {rendererMode === 'HTML_CANVAS' ? (
+              <AlgebraHtmlRenderer content={htmlContent} />
+            ) : (
+              <GeoGebraApplet
+                key={`ggb-fullscreen-${ggbAppName}`}
+                id={`ggb-applet-fullscreen`}
+                appName={ggbAppName}
+                onReady={(api) => {
+                  // Load the same state as the main applet
+                  const modeSpecificState = localStorage.getItem(`mathall-ggb-state-${ggbAppName}`);
+                  if (modeSpecificState) {
+                    try {
+                      api.setBase64(modeSpecificState);
+                      console.log(`Loaded ${ggbAppName} state in fullscreen mode`);
+                    } catch (e) {
+                      console.warn('Failed to load state in fullscreen:', e);
+                    }
+                  }
+                }}
+              />
+            )}
+          </div>
+        </div>
+      )}
+      <div className="app-container">
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+        <header className="glass-panel app-header">
         <div className="header-left">
           <div className="logo">
             MathAll
           </div>
-          {streamingTag && (
-            <div className="tag-stream">
-              问题类型：{streamingTag}
-              {isGenerating && <span style={{ animation: 'blink 1s step-end infinite' }}>_</span>}
-            </div>
-          )}
         </div>
 
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
@@ -246,30 +545,32 @@ function App() {
             <Settings size={18} /> 设置
           </button>
           
-          <div 
-             className="upload-dropdown" 
+          <div
+             className="upload-dropdown"
              style={{ position: 'relative' }}
           >
-             <button 
-               className="btn btn-outline" 
-               onClick={() => { setIsUploadOpen(!isUploadOpen); setIsDownloadOpen(false); }}
+             <button
+               className="btn btn-outline"
+               onClick={() => { setIsUploadOpen(!isUploadOpen); setIsDownloadOpen(false); setIsModelSelectorOpen(false); }}
              >
                <Upload size={18} /> 上传
              </button>
-             
+
              {isUploadOpen && (
                 <>
-                  <div 
-                    style={{ position: 'fixed', inset: 0, zIndex: 998 }} 
+                  <div
+                    style={{ position: 'fixed', inset: 0, zIndex: 998 }}
                     onClick={() => setIsUploadOpen(false)}
                   />
-                  <div className="dropdown-menu" style={{ minWidth: '220px', right: 0, zIndex: 999 }}>
-                    <label className="btn btn-outline" style={{ display: 'flex', width: '100%', border: 'none', justifyContent: 'flex-start', cursor: 'pointer' }}>
-                       导入 JSON (还原配置)
+                  <div className="dropdown-menu" style={{ minWidth: '240px', right: 0, zIndex: 999 }}>
+                    <label className="dropdown-item">
+                       <Upload size={16} style={{ opacity: 0.7 }} />
+                       <span>导入 JSON</span>
                        <input type="file" accept=".json" style={{display: 'none'}} onChange={handleImportJSON} />
                     </label>
-                    <label className="btn btn-outline" style={{ display: 'flex', width: '100%', border: 'none', justifyContent: 'flex-start', cursor: 'pointer' }}>
-                       导入 GGB (追加画板)
+                    <label className="dropdown-item">
+                       <Upload size={16} style={{ opacity: 0.7 }} />
+                       <span>导入 GGB</span>
                        <input type="file" accept=".ggb" style={{display: 'none'}} onChange={handleImportGGB} />
                     </label>
                   </div>
@@ -277,35 +578,59 @@ function App() {
              )}
           </div>
 
-          <div 
-             className="download-dropdown" 
+          <div
+             className="download-dropdown"
              style={{ position: 'relative' }}
           >
-             <button 
-               className="btn btn-primary" 
-               onClick={() => { setIsDownloadOpen(!isDownloadOpen); setIsUploadOpen(false); }}
+             <button
+               className="btn btn-primary"
+               onClick={() => { setIsDownloadOpen(!isDownloadOpen); setIsUploadOpen(false); setIsModelSelectorOpen(false); }}
              >
                <Download size={18} /> 下载
              </button>
-             
+
              {isDownloadOpen && (
                 <>
-                  <div 
-                    style={{ position: 'fixed', inset: 0, zIndex: 998 }} 
+                  <div
+                    style={{ position: 'fixed', inset: 0, zIndex: 998 }}
                     onClick={() => setIsDownloadOpen(false)}
                   />
-                  <div className="dropdown-menu" style={{ minWidth: '220px', right: 0, zIndex: 999 }}>
-                    <button className="btn btn-outline" onClick={handleExportJSON}>
-                       导出 JSON 归档
+                  <div className="dropdown-menu" style={{ minWidth: '240px', right: 0, zIndex: 999 }}>
+                    <button className="dropdown-item" onClick={handleExportJSON}>
+                       <Download size={16} style={{ opacity: 0.7 }} />
+                       <span>导出 JSON</span>
                     </button>
-                    <button className="btn btn-outline" onClick={handleExportGGB}>
-                       导出 GGB 画稿
+                    <button className="dropdown-item" onClick={handleExportGGB}>
+                       <Download size={16} style={{ opacity: 0.7 }} />
+                       <span>导出 GGB</span>
                     </button>
 
                     <div className="dropdown-divider"></div>
 
-                    <button className="btn btn-outline" onClick={() => { setIsDownloadOpen(false); setTimeout(printToPDF, 100) }}>
-                       打印输出为 PDF
+                    <button className="dropdown-item" onClick={() => {
+                      setIsDownloadOpen(false);
+                      setTimeout(() => {
+                        const ggbState = ggbApiRef.current?.getBase64();
+                        // Extract GGB code from aiCode
+                        let ggbCode = '';
+                        if (aiCode) {
+                          let match = aiCode.match(/【RESULT】([\s\S]*?)【\/RESULT】/);
+                          if (match) {
+                            ggbCode = match[1].trim();
+                          } else {
+                            match = aiCode.match(/```RESULT\s*\n([\s\S]*?)```/);
+                            if (match) {
+                              ggbCode = match[1].trim();
+                            }
+                          }
+                        }
+                        if (ggbState) {
+                          exportToHTML(ggbState, ggbAppName, problemText, imagesBase64, ggbCode, aiCode);
+                        }
+                      }, 100);
+                    }}>
+                       <Download size={16} style={{ opacity: 0.7 }} />
+                       <span>导出网页 HTML</span>
                     </button>
                   </div>
                 </>
@@ -328,8 +653,16 @@ function App() {
                 <div className="image-grid">
                   {imagesBase64.map((img, idx) => (
                     <div key={idx} className="image-grid-item">
-                      <img src={img} alt={`preview-${idx}`} />
-                      <div 
+                      <img
+                        src={img}
+                        alt={`preview-${idx}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setViewerImage(img);
+                        }}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      <div
                         className="image-grid-delete"
                         onClick={() => setImagesBase64(prev => prev.filter((_, i) => i !== idx))}
                       >
@@ -429,26 +762,178 @@ function App() {
               type="text"
               className="input-field"
               placeholder="在此输入题目内容，支持 Ctrl+V 粘贴图片......"
-              style={{ border: 'none', background: 'transparent' }}
+              style={{ border: 'none', background: 'transparent', flex: 1 }}
               value={problemText}
               onChange={e => setProblemText(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleStreamAI()}
             />
-            <button className="btn btn-primary" onClick={handleStreamAI} disabled={isGenerating} style={{ flexShrink: 0 }}>
+
+            {aiModels.length > 0 && (
+              <div className="model-selector-dropdown" style={{ position: 'relative' }}>
+                <button
+                  className="model-selector-btn"
+                  onClick={() => { setIsModelSelectorOpen(!isModelSelectorOpen); }}
+                  style={{ minWidth: '140px', justifyContent: 'space-between' }}
+                >
+                  <Bot size={16} style={{ flexShrink: 0, color: 'var(--primary-color)' }} />
+                  <span style={{
+                    flex: 1,
+                    textAlign: 'left',
+                    marginLeft: '6px',
+                    marginRight: '6px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    {aiModels.find(m => m.id === selectedModelId)?.name || '选择模型'}
+                  </span>
+                  <ChevronDown size={14} style={{ flexShrink: 0, opacity: 0.6 }} />
+                </button>
+
+                {isModelSelectorOpen && (
+                  <>
+                    <div
+                      style={{ position: 'fixed', inset: 0, zIndex: 998 }}
+                      onClick={() => setIsModelSelectorOpen(false)}
+                    />
+                    <div className="dropdown-menu" style={{ minWidth: '240px', right: 0, zIndex: 999, maxHeight: '320px', overflowY: 'auto' }}>
+                      {aiModels.map(model => (
+                        <button
+                          key={model.id}
+                          className="btn btn-outline"
+                          style={{
+                            display: 'flex',
+                            width: '100%',
+                            border: 'none',
+                            justifyContent: 'flex-start',
+                            alignItems: 'center',
+                            gap: '8px',
+                            background: model.id === selectedModelId ? 'var(--bg-secondary)' : 'transparent',
+                            fontWeight: model.id === selectedModelId ? 600 : 400
+                          }}
+                          onClick={() => {
+                            setSelectedModelId(model.id);
+                            localStorage.setItem('mathall-selected-model-id', model.id);
+                            // Update legacy keys
+                            const models = JSON.parse(localStorage.getItem('mathall-ai-models') || '[]');
+                            const selected = models.find((m: any) => m.id === model.id);
+                            if (selected) {
+                              localStorage.setItem('mathall-api-provider', selected.provider);
+                              localStorage.setItem('mathall-api-base-url', selected.baseUrl);
+                              localStorage.setItem('mathall-api-key', selected.apiKey);
+                              localStorage.setItem('mathall-model-name', selected.modelName);
+                            }
+                            setIsModelSelectorOpen(false);
+                          }}
+                        >
+                          {model.id === selectedModelId && (
+                            <Check size={16} style={{ color: 'var(--primary-color)', flexShrink: 0 }} />
+                          )}
+                          <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {model.name}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            <button
+              className="btn btn-primary"
+              onClick={handleStreamAI}
+              disabled={isGenerating}
+              style={{ flexShrink: 0 }}
+            >
               <RefreshCw size={18} className={isGenerating ? "animate-spin" : ""} />
-              {isGenerating ? "生成中..." : "分析与生成"}
+              {isGenerating ? "生成中..." : (hasGenerated && lastGeneratedModelId === selectedModelId ? "重新生成" : "分析与生成")}
             </button>
           </div>
 
-          <div className="ggb-wrapper">
+          <div className="ggb-wrapper" style={{ position: 'relative' }}>
+             {rendererMode !== 'HTML_CANVAS' && (
+               <>
+                 <div style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 100, display: 'flex', gap: '8px' }}>
+                   <button
+                     className="btn btn-outline"
+                     onClick={() => {
+                       const newMode = ggbAppName === '3d' ? 'classic' : '3d';
+                       // Clear pending code to prevent execution after switch
+                       setPendingGgbCode('');
+                       // Save current state with current mode before switching
+                       if (ggbApiRef.current) {
+                         try {
+                           const state = ggbApiRef.current.getBase64();
+                           localStorage.setItem(`mathall-ggb-state-${ggbAppName}`, state);
+                           console.log(`Saved ${ggbAppName} state before switching`);
+                         } catch (e) {
+                           console.warn('Failed to save state before mode switch:', e);
+                         }
+                       }
+                       setGgbAppName(newMode);
+                     }}
+                     style={{
+                       padding: '8px 12px',
+                       minWidth: 'auto',
+                       background: 'var(--panel-bg)',
+                       backdropFilter: 'blur(8px)',
+                       boxShadow: 'var(--shadow-md)',
+                       fontSize: '0.85rem',
+                       fontWeight: 600
+                     }}
+                     title={ggbAppName === '3d' ? '切换到 2D 模式' : '切换到 3D 模式'}
+                   >
+                     {ggbAppName === '3d' ? '2D' : '3D'}
+                   </button>
+                   <button
+                     className="btn btn-outline"
+                     onClick={() => setIsDebugPanelOpen(!isDebugPanelOpen)}
+                     style={{
+                       padding: '8px',
+                       minWidth: 'auto',
+                       background: isDebugPanelOpen ? 'var(--primary-color)' : 'var(--panel-bg)',
+                       color: isDebugPanelOpen ? 'white' : 'inherit',
+                       backdropFilter: 'blur(8px)',
+                       boxShadow: 'var(--shadow-md)'
+                     }}
+                     title="调试窗口"
+                   >
+                     <Bug size={18} />
+                   </button>
+                   {enableCanvasFullscreen && (
+                     <button
+                       className="btn btn-outline"
+                       onClick={() => setIsCanvasFullscreen(!isCanvasFullscreen)}
+                       style={{
+                         padding: '8px',
+                         minWidth: 'auto',
+                         background: 'var(--panel-bg)',
+                         backdropFilter: 'blur(8px)',
+                         boxShadow: 'var(--shadow-md)'
+                       }}
+                       title={isCanvasFullscreen ? '退出全屏' : '全屏显示'}
+                     >
+                       {isCanvasFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+                     </button>
+                   )}
+                 </div>
+                 {isDebugPanelOpen && (
+                   <DebugPanel
+                     ggbApi={ggbApiRef.current}
+                     onClose={() => setIsDebugPanelOpen(false)}
+                   />
+                 )}
+               </>
+             )}
              {rendererMode === 'HTML_CANVAS' ? (
                 <AlgebraHtmlRenderer content={htmlContent} />
              ) : (
-                <GeoGebraApplet 
-                  key={`ggb-${ggbLanguage}-${ggbAppName}`} 
-                  id={`ggb-applet-mathall-${ggbLanguage}-${ggbAppName}`} 
+                <GeoGebraApplet
+                  key={`ggb-${ggbAppName}`}
+                  id={`ggb-applet-mathall`}
                   appName={ggbAppName}
-                  onReady={handleGeoGebraReady} 
+                  onReady={handleGeoGebraReady}
                 />
              )}
           </div>
@@ -458,37 +943,236 @@ function App() {
           <div className="panel-section">
             <h3 className="panel-title">原始题目</h3>
             <div className="panel-placeholder">
-               {problemText || "等待上传题目图文..."}
-            </div>
-          </div>
-
-          <div className="panel-section" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-            <h3 className="panel-title">AI 指令流与解析</h3>
-            <div 
-              className="input-field markdown-body" 
-              style={{ flex: 1, overflowY: 'auto', background: 'transparent', border: 'none', padding: '0', fontSize: '0.95rem', lineHeight: '1.6' }}
-            >
-              {aiCode ? (
-                <ReactMarkdown
-                  remarkPlugins={[remarkMath]}
-                  rehypePlugins={[rehypeKatex]}
-                >
-                  {aiCode}
-                </ReactMarkdown>
-              ) : (
-                <div style={{ color: 'var(--text-secondary)' }}>等待 AI 分析...</div>
-              )}
+               {problemText && <div style={{ marginBottom: '12px', whiteSpace: 'pre-wrap' }}>{problemText}</div>}
+               {imagesBase64.length > 0 && (
+                 imagesBase64.length > imageModalThreshold ? (
+                   <div
+                     onClick={() => setIsImageModalOpen(true)}
+                     style={{
+                       padding: '20px',
+                       border: '2px dashed var(--primary-color)',
+                       borderRadius: '8px',
+                       textAlign: 'center',
+                       cursor: 'pointer',
+                       background: 'rgba(16, 185, 129, 0.05)',
+                       transition: 'all 0.2s'
+                     }}
+                     onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.1)'}
+                     onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.05)'}
+                   >
+                     <ImagePlus size={32} style={{ color: 'var(--primary-color)', marginBottom: '8px' }} />
+                     <div style={{ fontWeight: 600, color: 'var(--primary-color)' }}>
+                       {imagesBase64.length} 张图片
+                     </div>
+                     <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                       点击查看全部
+                     </div>
+                   </div>
+                 ) : (
+                   <div style={{
+                     display: 'grid',
+                     gridTemplateColumns: imagesBase64.length >= 2 ? 'repeat(2, 1fr)' : '1fr',
+                     gap: '8px'
+                   }}>
+                     {imagesBase64.map((img, idx) => (
+                       <img
+                         key={idx}
+                         src={img}
+                         alt={`题目图片-${idx + 1}`}
+                         onClick={() => setViewerImage(img)}
+                         style={{
+                           width: '100%',
+                           aspectRatio: imagesBase64.length >= 2 ? '1' : 'auto',
+                           objectFit: imagesBase64.length >= 2 ? 'cover' : 'contain',
+                           borderRadius: '8px',
+                           cursor: 'pointer',
+                           border: '1px solid var(--border-color)'
+                         }}
+                       />
+                     ))}
+                   </div>
+                 )
+               )}
+               {!problemText && imagesBase64.length === 0 && "等待上传题目图文..."}
             </div>
           </div>
 
           <div className="panel-section">
+            <h3 className="panel-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setIsGgbCodeExpanded(!isGgbCodeExpanded)}>
+              <span>GGB 代码</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {aiCode && (() => {
+                  // Try multiple patterns to extract GGB code
+                  let ggbCode = '';
+
+                  // Pattern 1: 【RESULT】...【/RESULT】 (Chinese brackets)
+                  let match = aiCode.match(/【RESULT】([\s\S]*?)【\/RESULT】/);
+                  if (match) {
+                    ggbCode = match[1].trim();
+                  } else {
+                    // Pattern 2: ```RESULT\n...\n```
+                    match = aiCode.match(/```RESULT\s*\n([\s\S]*?)```/);
+                    if (match) {
+                      ggbCode = match[1].trim();
+                    } else {
+                      // Pattern 3: **RESULT**\n...\n (without code fence)
+                      match = aiCode.match(/\*\*RESULT\*\*\s*\n([\s\S]*?)(?=\n\n|\n\*\*|$)/);
+                      if (match) {
+                        ggbCode = match[1].trim();
+                      } else {
+                        // Pattern 4: RESULT:\n...\n
+                        match = aiCode.match(/RESULT:?\s*\n([\s\S]*?)(?=\n\n|\n#|$)/);
+                        if (match) {
+                          ggbCode = match[1].trim();
+                        }
+                      }
+                    }
+                  }
+
+                  console.log('GGB Code extraction:', { found: !!ggbCode, length: ggbCode.length });
+
+                  return ggbCode ? (
+                    <div style={{ display: 'flex', gap: '8px' }} onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className="btn btn-outline"
+                        style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        onClick={() => {
+                          if (ggbApiRef.current) {
+                            executeGgbCode(ggbApiRef.current, ggbCode, true);
+                          } else {
+                            // No API yet, check mode and set pending
+                            const detectedMode = detectModeFromCode(ggbCode);
+                            if (detectedMode && detectedMode !== ggbAppName) {
+                              setGgbAppName(detectedMode);
+                            }
+                            setPendingGgbCode(ggbCode);
+                          }
+                        }}
+                      >
+                        <Upload size={14} style={{ transform: 'rotate(-90deg)' }} />
+                        <span>导入画板</span>
+                      </button>
+                      <button
+                        className="btn btn-outline"
+                        style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        onClick={() => {
+                          navigator.clipboard.writeText(ggbCode);
+                          setToast({ message: '已复制到剪贴板', type: 'success' });
+                        }}
+                      >
+                        <Copy size={14} />
+                        <span>复制</span>
+                      </button>
+                    </div>
+                  ) : null;
+                })()}
+                {isGgbCodeExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+              </div>
+            </h3>
+            {isGgbCodeExpanded && (
+              <div className="panel-placeholder">
+                {aiCode && (() => {
+                  // Same extraction logic
+                  let ggbCode = '';
+
+                  // Pattern 1: 【RESULT】...【/RESULT】 (Chinese brackets)
+                  let match = aiCode.match(/【RESULT】([\s\S]*?)【\/RESULT】/);
+                  if (match) {
+                    ggbCode = match[1].trim();
+                  } else {
+                    // Pattern 2: ```RESULT\n...\n```
+                    match = aiCode.match(/```RESULT\s*\n([\s\S]*?)```/);
+                    if (match) {
+                      ggbCode = match[1].trim();
+                    } else {
+                      // Pattern 3: **RESULT**\n...\n (without code fence)
+                      match = aiCode.match(/\*\*RESULT\*\*\s*\n([\s\S]*?)(?=\n\n|\n\*\*|$)/);
+                      if (match) {
+                        ggbCode = match[1].trim();
+                      } else {
+                        // Pattern 4: RESULT:\n...\n
+                        match = aiCode.match(/RESULT:?\s*\n([\s\S]*?)(?=\n\n|\n#|$)/);
+                        if (match) {
+                          ggbCode = match[1].trim();
+                        }
+                      }
+                    }
+                  }
+
+                  return ggbCode ? (
+                    <pre style={{
+                      background: 'var(--bg-color)',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      fontSize: '0.85rem',
+                      lineHeight: '1.5',
+                      overflowX: 'auto',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      margin: 0,
+                      border: '1px solid var(--border-color)',
+                      fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", "Monaco", monospace',
+                      fontWeight: 500,
+                      letterSpacing: '0.02em'
+                    }}>
+                      <code>{ggbCode}</code>
+                    </pre>
+                  ) : (
+                    <div style={{ color: 'var(--text-secondary)' }}>等待生成 GGB 代码...</div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+
+          <div className="panel-section" style={{ flex: isAiCodeExpanded ? 1 : 'none', display: 'flex', flexDirection: 'column' }}>
+            <h3 className="panel-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setIsAiCodeExpanded(!isAiCodeExpanded)}>
+              <span>AI 指令流与解析</span>
+              {isAiCodeExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+            </h3>
+            {isAiCodeExpanded && (
+              <div
+                className="input-field markdown-body"
+                style={{ flex: 1, overflowY: 'auto', background: 'transparent', border: 'none', padding: '0', fontSize: '0.95rem', lineHeight: '1.6' }}
+              >
+                {aiCode ? (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkMath]}
+                    rehypePlugins={[rehypeKatex]}
+                  >
+                    {aiCode}
+                  </ReactMarkdown>
+                ) : (
+                  <div style={{ color: 'var(--text-secondary)' }}>等待 AI 分析...</div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="panel-section">
             <h3 className="panel-title">代数暴力测算工具</h3>
-            <button className="btn btn-primary" style={{ width: '100%' }}>计算动点轨迹 & 最值</button>
-            <button className="btn btn-outline" style={{ width: '100%', marginTop: '8px' }}>提取长度 / 面积值</button>
+            <button
+              className="btn btn-primary"
+              style={{ width: '100%' }}
+              onClick={() => setIsAlgebraCalculatorOpen(true)}
+            >
+              打开测算工具
+            </button>
+            <button
+              className="btn btn-outline"
+              style={{ width: '100%', marginTop: '8px' }}
+              onClick={() => setIsMinimumCalculatorOpen(true)}
+            >
+              计算线段最小值
+            </button>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: '1.4' }}>
+              自动提取长度、面积、计算轨迹和最值
+            </p>
           </div>
         </aside>
       </div>
     </div>
+    </>
   );
 }
 

@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>测试根号功能</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .test-case {
+      margin: 20px 0;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background: #f9f9f9;
+    }
+    .result {
+      font-weight: bold;
+      color: #10b981;
+      font-size: 1.2em;
+    }
+    .expected {
+      color: #666;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <h1>根号简化功能测试</h1>
+  <div id="results"></div>
+
+  <script type="module">
+    // 简化根号函数
+    function simplifySquareRoot(value) {
+      if (value === 0) return { coefficient: 0, radicand: 1 };
+      if (value < 0) return { coefficient: 0, radicand: 1 };
+
+      let coefficient = 1;
+      let radicand = Math.round(value);
+
+      // 提取完全平方因子
+      for (let i = 2; i * i <= radicand; i++) {
+        while (radicand % (i * i) === 0) {
+          coefficient *= i;
+          radicand /= (i * i);
+        }
+      }
+
+      return { coefficient, radicand };
+    }
+
+    // 格式化根号表达式
+    function formatSquareRoot(coefficient, radicand) {
+      if (coefficient === 0) return '0';
+      if (radicand === 1) return coefficient.toString();
+      if (coefficient === 1) return `√${radicand}`;
+      return `${coefficient}√${radicand}`;
+    }
+
+    // 计算距离
+    function calculateDistance(x1, y1, x2, y2) {
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const distanceSquared = dx * dx + dy * dy;
+      const decimalDistance = Math.sqrt(distanceSquared);
+
+      const distanceSquaredInt = Math.round(distanceSquared * 1000000) / 1000000;
+      const distanceSquaredRounded = Math.round(distanceSquaredInt);
+
+      let exact;
+      if (Math.abs(distanceSquaredInt - distanceSquaredRounded) < 0.0001) {
+        const { coefficient, radicand } = simplifySquareRoot(distanceSquaredRounded);
+        exact = formatSquareRoot(coefficient, radicand);
+      } else {
+        exact = decimalDistance.toFixed(6);
+      }
+
+      return {
+        decimal: decimalDistance,
+        exact: exact,
+        squared: distanceSquaredInt
+      };
+    }
+
+    // 运行测试
+    const tests = [
+      { name: '√8', value: 8, expected: '2√2' },
+      { name: '√12', value: 12, expected: '2√3' },
+      { name: '√18', value: 18, expected: '3√2' },
+      { name: '√50', value: 50, expected: '5√2' },
+      { name: '√16', value: 16, expected: '4' },
+      { name: '√5', value: 5, expected: '√5' },
+      { name: '√32', value: 32, expected: '4√2' },
+      { name: '√72', value: 72, expected: '6√2' },
+    ];
+
+    const distanceTests = [
+      { name: '(0,0) → (3,4)', x1: 0, y1: 0, x2: 3, y2: 4, expected: '5' },
+      { name: '(0,0) → (1,1)', x1: 0, y1: 0, x2: 1, y2: 1, expected: '√2' },
+      { name: '(0,0) → (2,2)', x1: 0, y1: 0, x2: 2, y2: 2, expected: '2√2' },
+      { name: '(1,2) → (4,6)', x1: 1, y1: 2, x2: 4, y2: 6, expected: '5' },
+      { name: '(0,0) → (3,3)', x1: 0, y1: 0, x2: 3, y2: 3, expected: '3√2' },
+    ];
+
+    const resultsDiv = document.getElementById('results');
+
+    // 测试根号简化
+    resultsDiv.innerHTML += '<h2>根号简化测试</h2>';
+    tests.forEach(test => {
+      const result = simplifySquareRoot(test.value);
+      const formatted = formatSquareRoot(result.coefficient, result.radicand);
+      const passed = formatted === test.expected;
+
+      resultsDiv.innerHTML += `
+        <div class="test-case">
+          <div><strong>${test.name}</strong></div>
+          <div class="result">结果: ${formatted}</div>
+          <div class="expected">预期: ${test.expected}</div>
+          <div style="color: ${passed ? 'green' : 'red'}">
+            ${passed ? '✓ 通过' : '✗ 失败'}
+          </div>
+        </div>
+      `;
+    });
+
+    // 测试距离计算
+    resultsDiv.innerHTML += '<h2>距离计算测试</h2>';
+    distanceTests.forEach(test => {
+      const result = calculateDistance(test.x1, test.y1, test.x2, test.y2);
+      const passed = result.exact === test.expected;
+
+      resultsDiv.innerHTML += `
+        <div class="test-case">
+          <div><strong>${test.name}</strong></div>
+          <div class="result">精确值: ${result.exact}</div>
+          <div>小数值: ${result.decimal.toFixed(6)}</div>
+          <div>平方: ${result.squared}</div>
+          <div class="expected">预期: ${test.expected}</div>
+          <div style="color: ${passed ? 'green' : 'red'}">
+            ${passed ? '✓ 通过' : '✗ 失败'}
+          </div>
+        </div>
+      `;
+    });
+  </script>
+</body>
+</html>

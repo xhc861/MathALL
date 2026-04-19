@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(pnpm dev *)",
+      "WebSearch",
+      "WebFetch(domain:wiki.geogebra.org)",
+      "Bash(pnpm build *)",
+      "Bash(curl -L -o deployggb.js https://cdn.geogebra.org/apps/deployggb.js)",
+      "Bash(curl -L -o GeoGebra-Math-Apps-Bundle.zip https://download.geogebra.org/package/geogebra-math-apps-bundle)",
+      "Bash(curl -L -o web3d.zip https://download.geogebra.org/installers/6.0/GeoGebra-HTML5-Bundle-6-0-831-0.zip)",
+      "Bash(unzip -q GeoGebra-Math-Apps-Bundle.zip)",
+      "Bash(rm -rf public/geogebra)",
+      "Bash(mkdir -p public/geogebra)",
+      "Bash(cp public/geogebra/public/geogebra/deployggb.js public/geogebra/)",
+      "Bash(rm -rf public/geogebra/public)",
+      "Bash(curl *)",
+      "Bash(pnpm install *)",
+      "Bash(unzip -q GeoGebra-Math-Apps-Bundle-6-0-831-0.zip)",
+      "Bash(pnpm run *)",
+      "Bash(unzip -q /e/mathst/dist/geogebra/GeoGebra-Math-Apps-Bundle-6-0-831-0.zip -d geogebra-6.0)",
+      "Bash(git checkout *)",
+      "Bash(npm run *)",
+      "Bash(node *)"
+    ]
+  }
+}

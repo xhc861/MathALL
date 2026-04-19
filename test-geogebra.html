@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>GeoGebra 设置测试</title>
+    <script src="https://cdn.geogebra.org/apps/deployggb.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        #controls {
+            margin-bottom: 20px;
+        }
+        button {
+            margin: 5px;
+            padding: 10px 20px;
+        }
+        #ggb-container {
+            width: 800px;
+            height: 600px;
+            border: 2px solid #ccc;
+        }
+        .info {
+            margin-top: 20px;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>GeoGebra 6 设置测试</h1>
+
+    <div id="controls">
+        <h3>测试背景色设置：</h3>
+        <button onclick="changeBgColor('#ffffff')">白色</button>
+        <button onclick="changeBgColor('#f8fafc')">浅灰</button>
+        <button onclick="changeBgColor('#ecfdf5')">浅绿</button>
+        <button onclick="changeBgColor('#1e293b')">深色</button>
+
+        <h3>测试语言设置：</h3>
+        <button onclick="changeLanguage('zh')">简体中文</button>
+        <button onclick="changeLanguage('en')">English</button>
+        <button onclick="changeLanguage('fr')">Français</button>
+
+        <h3>测试视角：</h3>
+        <button onclick="setPerspective('G')">几何视图</button>
+        <button onclick="setPerspective('5')">3D 视图</button>
+    </div>
+
+    <div id="ggb-container"></div>
+
+    <div class="info">
+        <h3>控制台日志：</h3>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        let ggbApp = null;
+
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const time = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `<div>[${time}] ${message}</div>`;
+            console.log(message);
+        }
+
+        function initGeoGebra(language = 'zh', bgColor = '#ffffff') {
+            log(`初始化 GeoGebra - 语言: ${language}, 背景色: ${bgColor}`);
+
+            const container = document.getElementById('ggb-container');
+            container.innerHTML = '';
+
+            const params = {
+                appName: "classic",
+                width: 800,
+                height: 600,
+                showToolBar: false,
+                showAlgebraInput: false,
+                showMenuBar: false,
+                language: language,
+                bgColor: bgColor.replace('#', ''),
+                appletOnLoad: function(api) {
+                    ggbApp = api;
+                    log('GeoGebra 加载完成');
+
+                    setTimeout(() => {
+                        // 尝试通过 XML 设置背景色
+                        try {
+                            const xml = api.getXML();
+                            const hexColor = bgColor.replace('#', '');
+                            let newXml = xml;
+
+                            if (xml.includes('bgColor=')) {
+                                newXml = xml.replace(/bgColor="[^"]*"/g, `bgColor="${hexColor}"`);
+                            } else {
+                                newXml = xml.replace(
+                                    /<euclidianView([^>]*)>/g,
+                                    `<euclidianView$1 bgColor="${hexColor}">`
+                                );
+                            }
+
+                            if (newXml !== xml) {
+                                api.setXML(newXml);
+                                log('通过 XML 设置背景色成功');
+                            }
+                        } catch (e) {
+                            log('XML 设置失败: ' + e.message);
+                        }
+                    }, 500);
+                }
+            };
+
+            const applet = new GGBApplet(params, '6.0');
+            applet.inject('ggb-container');
+        }
+
+        function changeBgColor(color) {
+            log(`更改背景色为: ${color}`);
+            initGeoGebra('zh', color);
+        }
+
+        function changeLanguage(lang) {
+            log(`更改语言为: ${lang}`);
+            initGeoGebra(lang, '#ffffff');
+        }
+
+        function setPerspective(code) {
+            if (ggbApp) {
+                log(`设置视角: ${code}`);
+                ggbApp.evalCommand(`SetPerspective("${code}")`);
+            } else {
+                log('GeoGebra 未初始化');
+            }
+        }
+
+        // 初始化
+        window.onload = function() {
+            log('页面加载完成，初始化 GeoGebra...');
+            initGeoGebra();
+        };
+    </script>
+</body>
+</html>

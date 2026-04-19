@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import {
-  Sun, Moon, Palette, Bot, Info, Monitor,
-  Save, Search, ChevronRight, ChevronLeft
+  Sun, Moon, Palette, Bot, Info, FileText, Beaker,
+  Search, ChevronRight, ChevronLeft, Plus, Trash2, Check, ChevronDown
 } from 'lucide-react';
 import './SettingsPage.css';
 
@@ -19,11 +19,18 @@ const WEB_SAFE_COLORS = [
   { name: 'Pink', hex: '#ec4899' },
 ];
 
-const BG_COLORS = ['#ffffff', '#f8fafc', '#ecfdf5', '#fefce8', '#1e293b', '#273444'];
-
 const APP_VERSION = 'v1.0.0';
 
-type SettingsSection = 'appearance' | 'ai' | 'canvas' | 'prompt' | 'about';
+type SettingsSection = 'appearance' | 'ai' | 'prompt' | 'experimental' | 'about';
+
+interface AIModel {
+  id: string;
+  name: string;
+  provider: string;
+  baseUrl: string;
+  apiKey: string;
+  modelName: string;
+}
 
 interface SidebarItem {
   id: SettingsSection;
@@ -35,8 +42,8 @@ interface SidebarItem {
 const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: 'appearance', label: '外观与主题', icon: <Palette size={16} />, iconBg: '#007aff' },
   { id: 'ai', label: 'AI 模型配置', icon: <Bot size={16} />, iconBg: '#34c759' },
-  { id: 'canvas', label: '画板设置', icon: <Monitor size={16} />, iconBg: '#ff9500' },
-  { id: 'prompt', label: '系统提示词', icon: <Info size={16} />, iconBg: '#af52de' },
+  { id: 'prompt', label: '系统提示词', icon: <FileText size={16} />, iconBg: '#af52de' },
+  { id: 'experimental', label: '实验性设置', icon: <Beaker size={16} />, iconBg: '#ff9500' },
   { id: 'about', label: '关于', icon: <Info size={16} />, iconBg: '#8e8e93' },
 ];
 
@@ -48,65 +55,107 @@ export default function SettingsPage() {
 
   // Settings state
   const [theme, setTheme] = useState(() =>
-    (localStorage.getItem('mathall-theme') || 'light') as 'light' | 'dark'
+    (localStorage.getItem('mathall-theme') || 'light') as 'light' | 'dark' | 'industrial'
   );
   const [primaryColor, setPrimaryColor] = useState(() =>
     localStorage.getItem('mathall-primary-color') || '#10b981'
   );
-  const [apiBaseUrl, setApiBaseUrl] = useState(() =>
-    localStorage.getItem('mathall-api-base-url') || ''
+
+  // AI Models management
+  const [aiModels, setAiModels] = useState<AIModel[]>(() => {
+    const saved = localStorage.getItem('mathall-ai-models');
+    if (saved) {
+      return JSON.parse(saved);
+    }
+    // Migrate old single model config if exists
+    const oldProvider = localStorage.getItem('mathall-api-provider');
+    const oldBaseUrl = localStorage.getItem('mathall-api-base-url');
+    const oldApiKey = localStorage.getItem('mathall-api-key');
+    const oldModelName = localStorage.getItem('mathall-model-name');
+    if (oldProvider || oldBaseUrl || oldApiKey || oldModelName) {
+      return [{
+        id: Date.now().toString(),
+        name: '默认模型',
+        provider: oldProvider || 'openai',
+        baseUrl: oldBaseUrl || '',
+        apiKey: oldApiKey || '',
+        modelName: oldModelName || ''
+      }];
+    }
+    return [];
+  });
+  const [selectedModelId, setSelectedModelId] = useState(() =>
+    localStorage.getItem('mathall-selected-model-id') || (aiModels.length > 0 ? aiModels[0].id : '')
   );
-  const [apiKey, setApiKey] = useState(() =>
-    localStorage.getItem('mathall-api-key') || ''
-  );
-  const [modelName, setModelName] = useState(() =>
-    localStorage.getItem('mathall-model-name') || ''
-  );
-  const [apiProvider, setApiProvider] = useState(() =>
-    localStorage.getItem('mathall-api-provider') || 'openai'
-  );
-  const [ggbLanguage, setGgbLanguage] = useState(() =>
-    localStorage.getItem('mathall-ggb-language') || 'zh'
-  );
-  const [ggbBgColor, setGgbBgColor] = useState(() =>
-    localStorage.getItem('mathall-ggb-bgcolor') || '#ffffff'
-  );
+  const [providerDropdownOpen, setProviderDropdownOpen] = useState<string | null>(null);
+
   const [systemPrompt, setSystemPrompt] = useState(() =>
     localStorage.getItem('mathall-system-prompt') || DEFAULT_PROMPT
   );
   const [maxImages, setMaxImages] = useState(() =>
     parseInt(localStorage.getItem('mathall-max-images') || '4', 10)
   );
-  const [saved, setSaved] = useState(false);
+  const [imageModalThreshold, setImageModalThreshold] = useState(() =>
+    parseInt(localStorage.getItem('mathall-image-modal-threshold') || '5', 10)
+  );
+  const [enableCanvasFullscreen, setEnableCanvasFullscreen] = useState(() =>
+    localStorage.getItem('mathall-enable-canvas-fullscreen') === 'true'
+  );
 
+  // Auto-save on change
   useEffect(() => {
+    localStorage.setItem('mathall-theme', theme);
     document.documentElement.setAttribute('data-theme', theme);
+    window.dispatchEvent(new Event('mathall-settings-updated'));
   }, [theme]);
 
   useEffect(() => {
+    localStorage.setItem('mathall-primary-color', primaryColor);
     document.documentElement.style.setProperty('--primary-color', primaryColor);
+    window.dispatchEvent(new Event('mathall-settings-updated'));
   }, [primaryColor]);
 
-  const handleSave = () => {
-    localStorage.setItem('mathall-theme', theme);
-    localStorage.setItem('mathall-primary-color', primaryColor);
-    localStorage.setItem('mathall-api-base-url', apiBaseUrl);
-    localStorage.setItem('mathall-api-key', apiKey);
-    localStorage.setItem('mathall-model-name', modelName);
-    localStorage.setItem('mathall-api-provider', apiProvider);
-    localStorage.setItem('mathall-ggb-language', ggbLanguage);
-    localStorage.setItem('mathall-ggb-bgcolor', ggbBgColor);
-    localStorage.setItem('mathall-system-prompt', systemPrompt);
-    localStorage.setItem('mathall-max-images', maxImages.toString());
-    setSaved(true);
-    setTimeout(() => {
-      window.location.href = '/';
-    }, 1200);
-  };
+  // Save AI models
+  useEffect(() => {
+    localStorage.setItem('mathall-ai-models', JSON.stringify(aiModels));
+    // Update legacy keys for backward compatibility
+    const selectedModel = aiModels.find(m => m.id === selectedModelId);
+    if (selectedModel) {
+      localStorage.setItem('mathall-api-provider', selectedModel.provider);
+      localStorage.setItem('mathall-api-base-url', selectedModel.baseUrl);
+      localStorage.setItem('mathall-api-key', selectedModel.apiKey);
+      localStorage.setItem('mathall-model-name', selectedModel.modelName);
+    }
+    window.dispatchEvent(new Event('mathall-settings-updated'));
+  }, [aiModels, selectedModelId]);
 
-  const filteredItems = SIDEBAR_ITEMS.filter(item =>
-    item.label.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  useEffect(() => {
+    localStorage.setItem('mathall-selected-model-id', selectedModelId);
+    window.dispatchEvent(new Event('mathall-settings-updated'));
+  }, [selectedModelId]);
+
+  useEffect(() => {
+    localStorage.setItem('mathall-system-prompt', systemPrompt);
+    window.dispatchEvent(new Event('mathall-settings-updated'));
+  }, [systemPrompt]);
+
+  useEffect(() => {
+    localStorage.setItem('mathall-max-images', maxImages.toString());
+    window.dispatchEvent(new Event('mathall-settings-updated'));
+  }, [maxImages]);
+
+  useEffect(() => {
+    localStorage.setItem('mathall-image-modal-threshold', imageModalThreshold.toString());
+    window.dispatchEvent(new Event('mathall-settings-updated'));
+  }, [imageModalThreshold]);
+
+  useEffect(() => {
+    localStorage.setItem('mathall-enable-canvas-fullscreen', enableCanvasFullscreen.toString());
+    window.dispatchEvent(new Event('mathall-settings-updated'));
+  }, [enableCanvasFullscreen]);
+
+  const filteredItems = SIDEBAR_ITEMS
+    .filter(item => item.label.toLowerCase().includes(searchQuery.toLowerCase()));
 
   // Detect mobile
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
@@ -115,6 +164,32 @@ export default function SettingsPage() {
     window.addEventListener('resize', handler);
     return () => window.removeEventListener('resize', handler);
   }, []);
+
+  // AI Model management functions
+  const addNewModel = () => {
+    const newModel: AIModel = {
+      id: Date.now().toString(),
+      name: `模型 ${aiModels.length + 1}`,
+      provider: 'openai',
+      baseUrl: '',
+      apiKey: '',
+      modelName: ''
+    };
+    setAiModels([...aiModels, newModel]);
+    setSelectedModelId(newModel.id);
+  };
+
+  const deleteModel = (id: string) => {
+    const filtered = aiModels.filter(m => m.id !== id);
+    setAiModels(filtered);
+    if (selectedModelId === id && filtered.length > 0) {
+      setSelectedModelId(filtered[0].id);
+    }
+  };
+
+  const updateModel = (id: string, updates: Partial<AIModel>) => {
+    setAiModels(aiModels.map(m => m.id === id ? { ...m, ...updates } : m));
+  };
 
   const renderSectionContent = (section: SettingsSection) => {
     switch (section) {
@@ -127,9 +202,9 @@ export default function SettingsPage() {
               <div className="setting-row">
                 <div>
                   <div className="setting-row-label">主题</div>
-                  <div className="setting-row-desc">选择浅色或深色外观模式</div>
+                  <div className="setting-row-desc">选择应用的外观风格</div>
                 </div>
-                <div className="segmented-control">
+                <div className="segmented-control" style={{ display: 'flex', gap: '4px' }}>
                   <button
                     className={`segmented-btn ${theme === 'light' ? 'active' : ''}`}
                     onClick={() => setTheme('light')}
@@ -141,6 +216,12 @@ export default function SettingsPage() {
                     onClick={() => setTheme('dark')}
                   >
                     <Moon size={14} /> 深色
+                  </button>
+                  <button
+                    className={`segmented-btn ${theme === 'industrial' ? 'active' : ''}`}
+                    onClick={() => setTheme('industrial')}
+                  >
+                    🏭 工程
                   </button>
                 </div>
               </div>
@@ -167,142 +248,235 @@ export default function SettingsPage() {
         );
 
       case 'ai':
-        let baseUrlPlaceholder = "例如 https://api.openai.com/v1";
-        let baseUrlLabel = "API Base URL";
-        let modelPlaceholder = "例如 gpt-4o, deepseek-chat";
-
-        if (apiProvider === 'gemini') {
-          baseUrlPlaceholder = "默认: https://generativelanguage.googleapis.com (按需修改代理)";
-          modelPlaceholder = "例如 gemini-1.5-pro, gemini-2.0-flash";
-        } else if (apiProvider === 'cloudflare') {
-          baseUrlLabel = "Account ID";
-          baseUrlPlaceholder = "填入您的 Cloudflare Account ID";
-          modelPlaceholder = "例如 @cf/meta/llama-3-8b-instruct";
-        } else if (apiProvider === 'anthropic') {
-          baseUrlPlaceholder = "默认: https://api.anthropic.com (按需修改代理)";
-          modelPlaceholder = "例如 claude-3-5-sonnet-20240620";
-        } else if (apiProvider === 'ollama') {
-          baseUrlPlaceholder = "例如 http://127.0.0.1:11434/v1";
-          modelPlaceholder = "例如 qwen2.5:7b, llama3.1";
-        }
-
         return (
           <>
             <h2>AI 模型配置</h2>
             <div className="setting-row-desc" style={{ marginBottom: 20 }}>
-              支持各大原生协议与兼容协议。所有请求从您浏览器直接发送，不经过我们的服务器。
+              支持配置多个模型，可在主界面切换使用。所有请求从您浏览器直接发送，不经过我们的服务器。
             </div>
-            <div className="setting-group">
-              <div className="setting-row">
-                <div>
-                  <div className="setting-row-label">API 协议服务商</div>
-                  <div className="setting-row-desc">选择您的 API 使用的接口规范</div>
-                </div>
-                <select
-                  className="settings-select"
-                  value={apiProvider}
-                  onChange={e => setApiProvider(e.target.value)}
-                >
-                  <option value="openai">OpenAI 兼容 (OpenAI, DeepSeek, 智谱等)</option>
-                  <option value="gemini">Google Gemini 原生</option>
-                  <option value="anthropic">Anthropic Claude 原生</option>
-                  <option value="cloudflare">Cloudflare Workers AI</option>
-                  <option value="ollama">Ollama 本地部署 (OpenAI 兼容)</option>
-                </select>
-              </div>
-              <div className="setting-row">
-                <div className="setting-row-label">{baseUrlLabel}</div>
-                <input
-                  type="text"
-                  className="settings-input"
-                  placeholder={baseUrlPlaceholder}
-                  value={apiBaseUrl}
-                  onChange={e => setApiBaseUrl(e.target.value)}
-                />
-              </div>
-              <div className="setting-row">
-                <div className="setting-row-label">API Key</div>
-                <input
-                  type="password"
-                  className="settings-input"
-                  placeholder="sk-..."
-                  value={apiKey}
-                  onChange={e => setApiKey(e.target.value)}
-                />
-              </div>
-              <div className="setting-row">
-                <div className="setting-row-label">模型名称</div>
-                <input
-                  type="text"
-                  className="settings-input"
-                  placeholder={modelPlaceholder}
-                  value={modelName}
-                  onChange={e => setModelName(e.target.value)}
-                />
-              </div>
-              <div className="setting-row">
-                <div>
-                   <div className="setting-row-label">最大上传图片数量</div>
-                   <div className="setting-row-desc">调试配置，部分模型单次限制传图，可在此时调整</div>
-                </div>
-                <input
-                  type="number"
-                  className="settings-input"
-                  min="1"
-                  max="20"
-                  style={{ width: '80px', textAlign: 'center' }}
-                  value={maxImages}
-                  onChange={e => setMaxImages(parseInt(e.target.value) || 1)}
-                />
-              </div>
-            </div>
-          </>
-        );
 
-      case 'canvas':
-        return (
-          <>
-            <h2>画板设置</h2>
             <div className="setting-group">
-              <div className="setting-group-title">GeoGebra 配置</div>
-              <div className="setting-row">
-                <div>
-                  <div className="setting-row-label">界面语言</div>
-                  <div className="setting-row-desc">GeoGebra 画板的显示语言</div>
+              <div className="setting-group-title">模型列表</div>
+              {aiModels.length === 0 ? (
+                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                  暂无配置的模型，点击下方按钮添加
                 </div>
-                <select
-                  className="settings-select"
-                  value={ggbLanguage}
-                  onChange={e => setGgbLanguage(e.target.value)}
-                >
-                  <option value="zh">简体中文 (zh)</option>
-                  <option value="zh_TW">繁体中文 (zh_TW)</option>
-                  <option value="en">English (en)</option>
-                  <option value="fr">Français (fr)</option>
-                  <option value="de">Deutsch (de)</option>
-                  <option value="ja">日本語 (ja)</option>
-                </select>
-              </div>
+              ) : (
+                aiModels.map(model => {
+                  const isSelected = model.id === selectedModelId;
+                  let baseUrlPlaceholder = "例如 https://api.openai.com/v1";
+                  let baseUrlLabel = "API Base URL";
+                  let modelPlaceholder = "例如 gpt-4o, deepseek-chat";
 
-              <div className="setting-row" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
-                <div>
-                  <div className="setting-row-label">画板背景色</div>
-                  <div className="setting-row-desc" style={{ marginBottom: 10 }}>自定义画板的背景颜色（保存后生效）</div>
-                </div>
-                <div className="settings-color-palette">
-                  {BG_COLORS.map(c => (
-                    <button
-                      key={c}
-                      className={`settings-color-swatch ${ggbBgColor === c ? 'active' : ''}`}
+                  if (model.provider === 'gemini') {
+                    baseUrlPlaceholder = "默认: https://generativelanguage.googleapis.com";
+                    modelPlaceholder = "例如 gemini-1.5-pro, gemini-2.0-flash";
+                  } else if (model.provider === 'cloudflare') {
+                    baseUrlLabel = "Account ID";
+                    baseUrlPlaceholder = "填入您的 Cloudflare Account ID";
+                    modelPlaceholder = "例如 @cf/meta/llama-3-8b-instruct";
+                  } else if (model.provider === 'anthropic') {
+                    baseUrlPlaceholder = "默认: https://api.anthropic.com";
+                    modelPlaceholder = "例如 claude-3-5-sonnet-20240620";
+                  } else if (model.provider === 'ollama') {
+                    baseUrlPlaceholder = "例如 http://127.0.0.1:11434/v1";
+                    modelPlaceholder = "例如 qwen2.5:7b, llama3.1";
+                  }
+
+                  return (
+                    <div
+                      key={model.id}
                       style={{
-                        background: c,
-                        border: c === '#ffffff' ? '1px solid #e2e8f0' : '1px solid transparent'
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '8px',
+                        padding: '16px',
+                        marginBottom: '12px',
+                        background: isSelected ? 'var(--bg-secondary)' : 'transparent'
                       }}
-                      onClick={() => setGgbBgColor(c)}
-                    />
-                  ))}
-                </div>
-              </div>
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                        <button
+                          onClick={() => setSelectedModelId(model.id)}
+                          style={{
+                            width: '20px',
+                            height: '20px',
+                            borderRadius: '50%',
+                            border: '2px solid var(--primary-color)',
+                            background: isSelected ? 'var(--primary-color)' : 'transparent',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            flexShrink: 0
+                          }}
+                        >
+                          {isSelected && <Check size={12} color="white" />}
+                        </button>
+                        <input
+                          type="text"
+                          className="settings-input"
+                          placeholder="模型名称"
+                          value={model.name}
+                          onChange={e => updateModel(model.id, { name: e.target.value })}
+                          style={{ flex: 1 }}
+                        />
+                        <button
+                          onClick={() => deleteModel(model.id)}
+                          style={{
+                            padding: '6px',
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: 'var(--text-secondary)',
+                            display: 'flex',
+                            alignItems: 'center'
+                          }}
+                          title="删除模型"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+
+                      <div className="setting-row" style={{ marginBottom: '8px' }}>
+                        <div className="setting-row-label">API 协议服务商</div>
+                        <div style={{ position: 'relative' }}>
+                          <button
+                            className="custom-select-btn"
+                            onClick={() => setProviderDropdownOpen(providerDropdownOpen === model.id ? null : model.id)}
+                            style={{
+                              width: '100%',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '10px 14px',
+                              borderRadius: '8px',
+                              border: '1px solid var(--border-color)',
+                              background: 'var(--panel-bg)',
+                              color: 'var(--text-primary)',
+                              cursor: 'pointer',
+                              fontSize: '0.9rem',
+                              fontWeight: '500',
+                              transition: 'all 0.2s ease'
+                            }}
+                          >
+                            <span>
+                              {model.provider === 'openai' && 'OpenAI 兼容 (OpenAI, DeepSeek, 智谱等)'}
+                              {model.provider === 'gemini' && 'Google Gemini 原生'}
+                              {model.provider === 'anthropic' && 'Anthropic Claude 原生'}
+                              {model.provider === 'cloudflare' && 'Cloudflare Workers AI'}
+                              {model.provider === 'ollama' && 'Ollama 本地部署 (OpenAI 兼容)'}
+                            </span>
+                            <ChevronDown size={16} style={{
+                              transition: 'transform 0.2s ease',
+                              transform: providerDropdownOpen === model.id ? 'rotate(180deg)' : 'rotate(0deg)'
+                            }} />
+                          </button>
+                          {providerDropdownOpen === model.id && (
+                            <div className="custom-dropdown" style={{
+                              position: 'absolute',
+                              top: 'calc(100% + 4px)',
+                              right: 0,
+                              minWidth: '100%',
+                              width: 'max-content',
+                              maxWidth: 'min(400px, 90vw)',
+                              background: 'var(--panel-bg)',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: '8px',
+                              boxShadow: 'var(--shadow-lg)',
+                              zIndex: 1000,
+                              maxHeight: '240px',
+                              overflowY: 'auto',
+                              padding: '4px'
+                            }}>
+                              {[
+                                { value: 'openai', label: 'OpenAI 兼容 (OpenAI, DeepSeek, 智谱等)' },
+                                { value: 'gemini', label: 'Google Gemini 原生' },
+                                { value: 'anthropic', label: 'Anthropic Claude 原生' },
+                                { value: 'cloudflare', label: 'Cloudflare Workers AI' },
+                                { value: 'ollama', label: 'Ollama 本地部署 (OpenAI 兼容)' }
+                              ].map(option => (
+                                <div
+                                  key={option.value}
+                                  className="dropdown-item"
+                                  onClick={() => {
+                                    updateModel(model.id, { provider: option.value });
+                                    setProviderDropdownOpen(null);
+                                  }}
+                                  style={{
+                                    padding: '10px 14px',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease',
+                                    color: model.provider === option.value ? 'var(--primary-color)' : 'var(--text-primary)',
+                                    background: model.provider === option.value ? 'rgba(16, 185, 129, 0.1)' : 'transparent',
+                                    fontWeight: model.provider === option.value ? '600' : '500'
+                                  }}
+                                >
+                                  {option.label}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="setting-row" style={{ marginBottom: '8px' }}>
+                        <div className="setting-row-label">{baseUrlLabel}</div>
+                        <input
+                          type="text"
+                          className="settings-input"
+                          placeholder={baseUrlPlaceholder}
+                          value={model.baseUrl}
+                          onChange={e => updateModel(model.id, { baseUrl: e.target.value })}
+                        />
+                      </div>
+
+                      <div className="setting-row" style={{ marginBottom: '8px' }}>
+                        <div className="setting-row-label">API Key</div>
+                        <input
+                          type="password"
+                          className="settings-input"
+                          placeholder="sk-..."
+                          value={model.apiKey}
+                          onChange={e => updateModel(model.id, { apiKey: e.target.value })}
+                        />
+                      </div>
+
+                      <div className="setting-row">
+                        <div className="setting-row-label">模型名称</div>
+                        <input
+                          type="text"
+                          className="settings-input"
+                          placeholder={modelPlaceholder}
+                          value={model.modelName}
+                          onChange={e => updateModel(model.id, { modelName: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+
+              <button
+                onClick={addNewModel}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  background: 'var(--primary-color)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  fontSize: '14px',
+                  fontWeight: 500
+                }}
+              >
+                <Plus size={16} /> 添加新模型
+              </button>
             </div>
           </>
         );
@@ -325,6 +499,68 @@ export default function SettingsPage() {
           </>
         );
 
+      case 'experimental':
+        return (
+          <>
+            <h2>实验性设置</h2>
+            <div className="setting-row-desc" style={{ marginBottom: 20 }}>
+              这些设置可能会影响应用的显示行为，请谨慎调整。
+            </div>
+            <div className="setting-group">
+              <div className="setting-group-title">图片上传与显示</div>
+              <div className="setting-row">
+                <div>
+                   <div className="setting-row-label">最大上传图片数量</div>
+                   <div className="setting-row-desc">部分模型单次限制传图数量，可在此调整上限</div>
+                </div>
+                <input
+                  type="number"
+                  className="settings-input"
+                  min="1"
+                  max="20"
+                  style={{ width: '80px', textAlign: 'center' }}
+                  value={maxImages}
+                  onChange={e => setMaxImages(parseInt(e.target.value) || 1)}
+                />
+              </div>
+              <div className="setting-row">
+                <div>
+                   <div className="setting-row-label">图片模态框显示阈值</div>
+                   <div className="setting-row-desc">当图片数量超过此值时，右侧面板将显示"点击查看全部"按钮而非直接显示图片</div>
+                </div>
+                <input
+                  type="number"
+                  className="settings-input"
+                  min="1"
+                  max="20"
+                  style={{ width: '80px', textAlign: 'center' }}
+                  value={imageModalThreshold}
+                  onChange={e => setImageModalThreshold(parseInt(e.target.value) || 1)}
+                />
+              </div>
+            </div>
+
+            <div className="setting-group">
+              <div className="setting-group-title">画板显示</div>
+              <div className="setting-row">
+                <div>
+                   <div className="setting-row-label">启用画板全屏按钮</div>
+                   <div className="setting-row-desc">在画板区域显示全屏按钮，点击可放大画板到全屏状态</div>
+                </div>
+                <label className="ios-toggle">
+                  <input
+                    type="checkbox"
+                    checked={enableCanvasFullscreen}
+                    onChange={e => setEnableCanvasFullscreen(e.target.checked)}
+                  />
+                  <span className="ios-toggle-track"></span>
+                </label>
+              </div>
+            </div>
+
+          </>
+        );
+
       case 'about':
         return (
           <>
@@ -340,7 +576,7 @@ export default function SettingsPage() {
               </div>
               <div className="about-info-row">
                 <span className="about-info-label">渲染引擎</span>
-                <span className="about-info-value">GeoGebra Classic 5.0</span>
+                <span className="about-info-value">GeoGebra 6.0</span>
               </div>
               <div className="about-info-row">
                 <span className="about-info-label">AI 协议标准</span>
@@ -359,29 +595,16 @@ export default function SettingsPage() {
 
   return (
     <div className="settings-root">
-      {saved && <div className="save-toast">设置已保存，正在返回工作台...</div>}
-
       <div className="macos-window">
         {/* macOS Title Bar */}
         <div className="macos-titlebar">
-          <div style={{ paddingLeft: '16px', display: 'flex', alignItems: 'center' }}>
-            <button className="btn btn-outline" style={{ padding: '6px 12px', fontSize: '0.85rem', border: 'none', background: 'transparent' }} onClick={() => navigate('/')}>
-              <ChevronLeft size={16} /> 返回
-            </button>
-          </div>
+          <button className="btn btn-outline" style={{ padding: '6px 12px', fontSize: '0.85rem', border: 'none', background: 'transparent' }} onClick={() => navigate('/')}>
+            <ChevronLeft size={16} /> 返回
+          </button>
           <div className="macos-titlebar-center">
             {isMobile && mobileDetail ? currentItemLabel : 'MathAll 设置'}
           </div>
-          <div className="macos-titlebar-actions">
-            <button
-              className="btn btn-primary"
-              style={{ padding: '6px 16px', fontSize: '0.82rem', borderRadius: '6px' }}
-              onClick={handleSave}
-            >
-              <Save size={14} />
-              {saved ? '已保存' : '保存'}
-            </button>
-          </div>
+          <div style={{ width: '80px' }}></div>
         </div>
 
         {/* Body */}
@@ -463,38 +686,76 @@ export default function SettingsPage() {
   );
 }
 
-const DEFAULT_PROMPT = `你是一位严谨、顶尖的数学教研宗师级 AI 助手。请严格遵循以下工作流程：
+const DEFAULT_PROMPT = `你是数学可视化 AI 助手。分析题目后，将 GeoGebra 代码放在【RESULT】标记内。
 
-【第一步：题目分类（流式输出，必须最先返回）】
-请先输出4个字的题目标签用于分类，比如："几何最值"、"几何定值"、"立体几何"、"二次函数"、"函数综合"、"数形结合"等。
+【输出格式】
+你可以先分析题目，然后在最后输出：
 
-【第二步：常规解法（辅助线法）】
-如果题目含有几何特征，请提供标准的辅助线几何解法，画出必要的辅助线。立体几何需明确辅助面或辅线。
+【RESULT】
+MODE: 2D
+A = (0, 0)
+ShowLabel(A, true)
+B = (5, 0)
+ShowLabel(B, true)
+seg = Segment(A, B)
+SetColor(seg, "Black")
+【/RESULT】
 
-【第三步：暴力解析几何法（坐标法，强制要求提供）】
-对所有可以建系的题目（平面、立体几何、数形结合类），你必须强制补充【暴力代数解法】，使用以下工具：
-- 两点距离（2D/3D）：d = √((x₁-x₂)²+(y₁-y₂)²+(z₁-z₂)²)
-- 中点坐标
-- 斜率、法向量等相关性质
-- 鞋带公式等可以代数化的方法
+【代码规范】
+- 第一行必须是 MODE: 2D 或 MODE: 3D
+- 每行一条可执行的 GeoGebra 命令
+- 点：A = (0, 0) 或 A = (0, 0, 0)
+- 线段：seg = Segment(A, B)
+- 多边形：poly = Polygon(A, B, C, D)
+- 圆：c = Circle(A, 5)
+- 滑块：t = Slider(0, 1, 0.01)
+- 动点：P = (t, t^2)
+- 函数：f(x) = x^2 + 2x + 1
 
-【第四步：GeoGebra 指令输出】
-将解法结果转化为 GeoGebra 的标准指令格式，每条指令一行，以便直接使用 evalCommand 执行。
-若是立体几何问题，请务必使用三维坐标点（例如：A=(0,0,0)）以及立体几何配套命令（如 Sphere, Plane 等）。
-若是平面几何问题则使用二维坐标（A=(0,0)）。
+【显示规范】
+1. 每个点创建后必须显示标签：
+   ShowLabel(点名, true)
 
-格式示例：
-MODE: 2D/3D
-A = (0, 0, 0)
-B = (5, 0, 0)
-poly1 = Polygon(A, B, C, D)
-segment_AB = Segment(A, B)
+2. 线段、多边形等图形不显示标签
 
-如果涉及动点，请使用 Slider 变量来表达参数，例如：
+【颜色规范】
+只设置点和线段的颜色，使用颜色名称字符串：
+
+1. 固定点 → 蓝色
+   SetColor(点名, "Blue")
+
+2. 动点（依赖滑块的）→ 红色
+   SetColor(点名, "Red")
+
+3. 所有线段（固定或动态）→ 黑色
+   SetColor(线段名, "Black")
+
+4. 目标线段（题目要求的）→ 红色
+   SetColor(目标线段名, "Red")
+
+【示例】
+【RESULT】
+MODE: 2D
+A = (0, 0)
+ShowLabel(A, true)
+SetColor(A, "Blue")
+B = (4, 0)
+ShowLabel(B, true)
+SetColor(B, "Blue")
+seg1 = Segment(A, B)
+SetColor(seg1, "Black")
 t = Slider(0, 1, 0.01)
-P = Point(...)
+P = (t, 2)
+ShowLabel(P, true)
+SetColor(P, "Red")
+seg2 = Segment(A, P)
+SetColor(seg2, "Black")
+target = Segment(B, P)
+SetColor(target, "Red")
+【/RESULT】
 
-【输出要求】
-- 确保 GeoGebra 指令语法正确，且变量命名合理。
-- 对于求最值的问题，请标注最大/最小值的计算过程和结果。
-- 如果涉及轨迹，请使用 Locus() 命令。`;
+【重要】
+- 每个点必须显示标签
+- 只设置点和线的颜色，不设置面的填充色
+- 使用颜色名称字符串，不要使用 RGB 数值`;
+
