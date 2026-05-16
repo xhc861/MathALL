@@ -97,9 +97,6 @@ export default function MinimumCalculator({ ggbApi, isOpen, onClose }: MinimumCa
       const cmdStr = ggbApi.getCommandString(selectedSegment, false);
       console.log('Segment definition:', cmdStr);
 
-      // 查找线段依赖的所有点
-      const segmentDef = ggbApi.getValueString(selectedSegment, false);
-
       // 尝试找到可以移动的点（自由点或依赖于滑块的点）
       const allObjects = ggbApi.getAllObjectNames();
       const freePoints: string[] = [];
